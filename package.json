@@ -1,0 +1,7 @@
+{
+  "name": "notion-desktop",
+  "productName": "Notion",
+  "version": "4.16.0",
+  "main": "app.asar",
+  "description": "Notion Desktop App"
+}
