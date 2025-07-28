@@ -1,0 +1,92 @@
+name: Update Notion Version
+
+on:
+  schedule:
+    - cron: '0 10 * * *'  # Daily at 10:00 UTC
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    
+    steps:
+      - uses: actions/checkout@v4
+        
+      - uses: nixbuild/nix-quick-install-action@v28
+        with:
+          nix_conf: experimental-features = nix-command flakes
+          
+      - name: Check for updates
+        id: update
+        run: |
+          current=$(grep 'version = ' pkgs/notion-desktop.nix | cut -d'"' -f2)
+          echo "current=$current" >> $GITHUB_OUTPUT
+          
+          # Try incrementally higher versions
+          IFS='.' read -r maj min patch <<< "$current"
+          
+          latest="$current"
+          # Try patch versions first
+          for p in $(seq $((patch + 1)) $((patch + 20))); do
+            test_url="https://desktop-release.notion-static.com/Notion-${maj}.${min}.${p}-universal.dmg"
+            if curl -sLI "$test_url" | head -1 | grep -q "200 OK"; then
+              latest="${maj}.${min}.${p}"
+            else
+              break
+            fi
+          done
+          
+          # Try minor versions if no patch updates
+          if [ "$latest" = "$current" ]; then
+            for m in $(seq $((min + 1)) $((min + 10))); do
+              test_url="https://desktop-release.notion-static.com/Notion-${maj}.${m}.0-universal.dmg"
+              if curl -sLI "$test_url" | head -1 | grep -q "200 OK"; then
+                latest="${maj}.${m}.0"
+                # Check for patches too
+                for p in $(seq 1 20); do
+                  test_url="https://desktop-release.notion-static.com/Notion-${maj}.${m}.${p}-universal.dmg"
+                  if curl -sLI "$test_url" | head -1 | grep -q "200 OK"; then
+                    latest="${maj}.${m}.${p}"
+                  else
+                    break
+                  fi
+                done
+                break
+              fi
+            done
+          fi
+          
+          echo "latest=$latest" >> $GITHUB_OUTPUT
+          [ "$latest" != "$current" ] && echo "updated=true" >> $GITHUB_OUTPUT || echo "updated=false" >> $GITHUB_OUTPUT
+          
+      - name: Update flake
+        if: steps.update.outputs.updated == 'true'
+        run: |
+          new_version="${{ steps.update.outputs.latest }}"
+          
+          # Update version
+          sed -i "s/version = \"[^\"]*\"/version = \"$new_version\"/" pkgs/notion-desktop.nix
+          
+          # Update hash
+          new_url="https://desktop-release.notion-static.com/Notion-${new_version}-universal.dmg"
+          new_hash=$(nix-prefetch-url --type sha256 "$new_url" | xargs nix-hash --type sha256 --to-sri)
+          sed -i "s/hash = \"[^\"]*\"/hash = \"$new_hash\"/" pkgs/notion-desktop.nix
+          
+          # Test build
+          nix build --no-link .#notion-desktop
+          
+      - name: Create PR
+        if: steps.update.outputs.updated == 'true'  
+        uses: peter-evans/create-pull-request@v6
+        with:
+          title: "chore: update notion to ${{ steps.update.outputs.latest }}"
+          commit-message: "chore: update notion to ${{ steps.update.outputs.latest }}"
+          branch: update/notion-${{ steps.update.outputs.latest }}
+          body: |
+            Automated update from ${{ steps.update.outputs.current }} to ${{ steps.update.outputs.latest }}
+            
+            - Build tested ✅
+          labels: dependencies,automated
