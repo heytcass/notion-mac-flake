@@ -22,7 +22,7 @@ jobs:
       - name: Check for updates
         id: update
         run: |
-          current=$(grep 'version = ' pkgs/notion-desktop.nix | cut -d'"' -f2)
+          current=$(grep '^  version = ' pkgs/notion-desktop.nix | head -1 | cut -d'"' -f2)
           echo "current=$current" >> $GITHUB_OUTPUT
           
           # Try incrementally higher versions
