@@ -14,9 +14,16 @@
   fontconfig,
   dejavu_fonts,
   libicns,
+  curl,
 }: let
   pname = "notion-desktop";
   version = "4.16.0";
+  
+  # Pre-fetched official Notion icon
+  notionIcon = fetchurl {
+    url = "https://upload.wikimedia.org/wikipedia/commons/4/45/Notion_app_logo.png";
+    sha256 = "1gnm4ib1i30winhz4qhpyx21syp9ahhwdj3n1l7345l9kmjiv06s";
+  };
   
   srcDmg = fetchurl {
     url = "https://desktop-release.notion-static.com/Notion-${version}-universal.dmg";
@@ -76,6 +83,7 @@ stdenvNoCC.mkDerivation rec {
     imagemagick  # For icon conversion
     fontconfig  # For font configuration
     libicns  # For .icns file extraction
+    curl  # For downloading official icon
   ];
 
   buildInputs = [
@@ -241,10 +249,28 @@ EOF
     # Extract and convert the icon from the Mac .icns file
     mkdir -p $out/share/icons/hicolor/{16x16,32x32,48x48,64x64,128x128,256x256,512x512}/apps
     
-    # Find the main app icon (.icns file)
-    ICON_FILE=$(find $TMPDIR/build/notion-app/Contents/Resources -name "*.icns" | head -1)
+    # Use the pre-fetched official Notion icon
+    echo "Using official Notion icon from ${notionIcon}"
+    
+    if [ -f "${notionIcon}" ]; then
+      echo "Creating icons from official Notion logo"
+      for size in 16 32 48 64 128 256 512; do
+        magick "${notionIcon}" -resize ''${size}x''${size} "$out/share/icons/hicolor/''${size}x''${size}/apps/notion.png"
+        echo "Created ''${size}x''${size} icon from official logo"
+      done
+    else
+      # Fallback to extracting from .icns file
+      echo "Official icon download failed, falling back to .icns extraction"
+      
+      # Find the main app icon (.icns file)
+    echo "Searching for .icns files in Resources directory..."
+    find $TMPDIR/build/notion-app/Contents/Resources -name "*.icns" -type f | while read -r icns; do
+      echo "  Found: $icns ($(basename "$icns"))"
+    done
+    
+    ICON_FILE=$(find $TMPDIR/build/notion-app/Contents/Resources -name "*.icns" | grep -v "document" | head -1)
     if [ -n "$ICON_FILE" ]; then
-      echo "Found icon file: $ICON_FILE"
+      echo "Selected icon file: $ICON_FILE"
       
       # Convert .icns to multiple PNG sizes using libicns
       echo "Extracting individual icon sizes from .icns file..."
@@ -261,14 +287,14 @@ EOF
       
       # Check if libicns extraction worked
       
-      # Look for extracted PNGs from the electron.icns file
-      EXTRACTED_PNGS=$(find "$TMPDIR" -name "*electron*.png" 2>/dev/null)
+      # Look for any extracted PNGs from the .icns file
+      EXTRACTED_PNGS=$(find "$TMPDIR" -name "*.png" -type f 2>/dev/null | grep -v "notion-icon-large.png" || true)
       if [ -n "$EXTRACTED_PNGS" ]; then
-        echo "Successfully extracted electron icons with libicns:"
+        echo "Successfully extracted icons with libicns:"
         echo "$EXTRACTED_PNGS"
-        # Find the largest available icon by filename (usually has size in name)
-        LARGEST_ICON=$(echo "$EXTRACTED_PNGS" | sort -V | tail -1)
-        echo "Using largest extracted electron icon: $LARGEST_ICON"
+        # Find the largest available icon by file size
+        LARGEST_ICON=$(ls -S $EXTRACTED_PNGS 2>/dev/null | head -1)
+        echo "Using largest extracted icon: $LARGEST_ICON"
         # Create all standard sizes from the largest available
         for size in 16 32 48 64 128 256 512; do
           magick "$LARGEST_ICON" -resize ''${size}x''${size} "$out/share/icons/hicolor/''${size}x''${size}/apps/notion.png"
@@ -315,6 +341,7 @@ EOF
             "$out/share/icons/hicolor/''${size}x''${size}/apps/notion.png"
         }
       done
+    fi
     fi
 
     runHook postInstall

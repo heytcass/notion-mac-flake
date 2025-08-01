@@ -18,6 +18,7 @@
   in {
     packages = rec {
       notion-desktop = pkgs.callPackage ./pkgs/notion-desktop.nix {};
+      notion-desktop-debug = pkgs.callPackage ./pkgs/notion-desktop-debug.nix {};
       default = notion-desktop;
     };
     
