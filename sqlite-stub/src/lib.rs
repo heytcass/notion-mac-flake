@@ -1,5 +1,7 @@
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
+use std::fs;
+use std::path::Path;
 
 #[napi]
 pub struct Database {
@@ -16,6 +18,19 @@ impl Database {
   #[napi(constructor)]
   pub fn new(path: String, _options: Option<String>) -> Result<Self> {
     println!("[SQLite Stub] Opening database: {}", path);
+    
+    // Create the database file if it doesn't exist
+    let db_path = Path::new(&path);
+    if !db_path.exists() {
+      // Create parent directories if they don't exist
+      if let Some(parent) = db_path.parent() {
+        fs::create_dir_all(parent).ok();
+      }
+      // Create empty database file
+      fs::write(&path, b"").ok();
+      println!("[SQLite Stub] Created empty database file: {}", path);
+    }
+    
     Ok(Database { _path: path })
   }
 
